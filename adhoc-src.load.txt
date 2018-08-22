@@ -1,0 +1,104 @@
+# (Start GENHOST-loop i.e. LOAD...) Process each GENHOST (data collection) in a loop:
+for i in `seq 1 $NUM_GENHOSTs`; do
+    tmpIP="GENHOST$i" # NB! don't do direct assignment unless you know what you're doing!
+    CUR_GENHOST_IP=${!tmpIP}
+
+    # GENHOST Section - setup and do data collection:
+    if [ $DEBUG ]; then
+	echo "Loading current GENHOST $i: ($CUR_GENHOST_IP)..."
+    fi
+    ssh -q ${CUR_GENHOST_IP} "mkdir -p ${DIRNAME}"
+
+    # Note that tcpdump must be enabled for each host by setting VAR in .cfg file, 
+    #  e.g. GENHOSTn_TCPDUMP=anything:
+    tmpTCP="GENHOST${i}_TCPDUMP" # NB! don't do direct assignment unless you know what you're doing!
+    CUR_GENHOST_TCPDUMP=${!tmpTCP}
+    if [ $DEBUG ]; then
+       echo Starting tcpdump for $CUR_GENHOST_IP...
+       echo CUR_GENHOST_TCPDUMP = ${CUR_GENHOST_TCPDUMP}
+    fi
+
+### HOST-NAME TAG!!! (BEGIN)
+###!!! NOTE NEW TAG - ONLY TO APPEND TAG# TO HOST-NAME, WHEN THERE ARE DUPLICATE HOST-NAMES!!!
+# 
+if [ GENHOST${i}_TAG ]; then
+    tmpTAG="GENHOST${i}_TAG" # NB! don't do direct assignment unless you know what you're doing!
+    CUR_GENHOST_TAG=${!tmpTAG}
+    
+    if [ $DEBUG ]; then
+       echo CUR_GENHOST_TAG = ${CUR_GENHOST_TAG}
+    fi
+fi
+### HOST-NAME TAG!!! (END!)
+
+# Obtain Optional tcpdump arguments/filters:
+    tmpOPT="GENHOST${i}_TCPDUMP_OPTARGS" # NB! don't do direct assignment unless you know what you're doing!
+    CUR_GENHOST_TCPDUMP_OPTARGS=${!tmpOPT}
+    
+    if [ $DEBUG ]; then
+       echo CUR_GENHOST_TCPDUMP_OPTARGS = ${CUR_GENHOST_TCPDUMP_OPTARGS}
+    fi
+
+    if [ ${CUR_GENHOST_TCPDUMP} ]; then
+        if [ ! -z "$CUR_GENHOST_TCPDUMP_OPTARGS" ]; then
+    	    ssh -q ${CUR_GENHOST_IP} "screen -dmS TCPDUMP-${DATE} ${CUR_GENHOST_TCPDUMP_OPTARGS} -w ${DIRNAME}\`hostname\`${CUR_GENHOST_TAG}.$TESTNAME.pcap &"
+        else
+	    ssh -q ${CUR_GENHOST_IP} "screen -dmS TCPDUMP-${DATE} ${TCPDUMP} -w ${DIRNAME}\`hostname\`${CUR_GENHOST_TAG}.$TESTNAME.pcap &"
+    	fi
+    fi
+
+    tmpNumFiles="GENHOST${i}_NUM_FILEs" # NB! don't do direct assignment unless you know what you're doing!
+    CUR_GENHOST_IP_NUM_FILEs=${!tmpNumFiles}
+
+    # The following variables should be set in the /usr/local/collect/collect.[TESTER].cfg file (or NULL)!
+    # Process each CUR_GENHOST_IP_LOGFILE ( which is defined in .cfg file in syntax: GENHOSTx_FNAMEy ):
+    # (Start FNAME-loop) Process each FNAME (data collection) in a loop:
+    for j in `seq 1 $CUR_GENHOST_IP_NUM_FILEs`; do
+
+        tempSvar="GENHOST${i}_FNAME$j" # NB! don't do direct assignment unless you know what you're doing!
+        CUR_GENHOST_IP_LOGFILE=${!tempSvar}
+        tempDvar="GENHOST${i}_DPATH$j" # NB! don't do direct assignment unless you know what you're doing!
+        CUR_GENHOST_IP_LOGDIR=${!tempDvar}
+
+	GENHOST_DIR=$CUR_GENHOST_IP_LOGDIR
+	GENHOST_FILE=$CUR_GENHOST_IP_LOGFILE
+
+	if [ $DEBUG ]; then
+	   echo
+           echo "Current file = $GENHOST_FILE ( $GENHOST_DIR )..."
+        fi
+
+### Begin Section to handle duplicate file names (on same host):
+	# ...basically just compare the current file name w/ other file names in list/array...
+	# "j" is the current file being processed
+	jj=`expr $j + 1`	# "jj" is the next file in the list
+
+        tempNvar="GENHOST${i}_FNAME${jj}" # NB! don't do direct assignment unless you know what you're doing!
+        NEXT_FILE=${!tempNvar}
+        tempNDvar="GENHOST${i}_DPATH${jj}" # NB! don't do direct assignment unless you know what you're doing!
+        NEXT_DIR=${!tempNDvar}
+
+	if [ $DEBUG1 ]; then
+            echo "Next file(m) = $NEXT_FILE ( $NEXT_DIR )..."
+	    echo j  = $j
+            echo jj = $jj
+        fi
+
+	# check if any files have the same name (directories are different):
+        if [ "${CUR_GENHOST_IP_LOGFILE}" == "${NEXT_FILE}" ]; then
+	   # Since we have detected a duplicate file name, append a "0" tag to the first instance (filename):
+	   HACK_DUPE_FILENAME=$j
+
+	   if [ $DEBUG ]; then
+	      echo WE HAVE A MATCH!
+	      echo "new filename (of first instance) is: ${GENHOST_FILE}${HACK_DUPE_FILENAME} !"
+	   fi
+	else
+	   unset HACK_DUPE_FILENAME
+	fi
+### End - Section to handle duplicate file names (on same host).
+
+	ssh -q ${CUR_GENHOST_IP} "screen -dmS TAIL${CUR_GENHOST_IP_LOGFILE}${HACK_DUPE_FILENAME}-${DATE} bash -c \"tail -F -n0 ${GENHOST_DIR}/${GENHOST_FILE} > ${DIRNAME}\`hostname\`${CUR_GENHOST_TAG}.$TESTNAME.${GENHOST_FILE}${HACK_DUPE_FILENAME}.txt\" &"
+
+    done # (End CUR_GENHOST_IP_NUM_FILEs loop!)
+done # (End GENHOST-loop - (data collection i.e. DONE w/ Initiating Logfiles and tcpdump collection).)
